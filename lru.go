@@ -2,6 +2,7 @@ package MemoryLRU
 
 import (
 	"container/list"
+	"sync"
 )
 
 const (
@@ -17,6 +18,7 @@ type Cache struct {
 	OnEvicted   func(key Key, value []byte, fullType RemoveReason)
 	ll          *list.List
 	cache       map[interface{}]*list.Element
+	mu          sync.RWMutex
 }
 
 type Key string
@@ -44,6 +46,8 @@ func New(maxEntries uint64, maxMemory uint64) *Cache {
 }
 
 func (c *Cache) Add(key Key, value []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.cache == nil {
 		c.cache = make(map[interface{}]*list.Element)
 		c.ll = list.New()
@@ -57,21 +61,19 @@ func (c *Cache) Add(key Key, value []byte) {
 
 	for {
 		left := c.MaxMemory - c.memoryCount
-		if c.Len() == 0 {
+		if c.lenLocked() == 0 {
 			// remove all but memory still not enough
 			if left > itemSize {
 				break
 			}
 			return
 		}
-
 		if left < itemSize {
-			c.removeOldest(RemoveTypeFullMemory)
+			c.removeOldestLocked(RemoveTypeFullMemory)
 			continue
 		}
 		break
 	}
-
 
 	if ee, ok := c.cache[key]; ok {
 		c.ll.MoveToFront(ee)
@@ -83,11 +85,13 @@ func (c *Cache) Add(key Key, value []byte) {
 	ele := c.ll.PushFront(&entry{key, value})
 	c.cache[key] = ele
 	if uint64(c.ll.Len()) > c.MaxEntries {
-		c.removeOldest(RemoveTypeFullEntries)
+		c.removeOldestLocked(RemoveTypeFullEntries)
 	}
 }
 
 func (c *Cache) Get(key Key) (value interface{}, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.cache == nil {
 		return
 	}
@@ -99,6 +103,8 @@ func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 }
 
 func (c *Cache) Remove(key Key) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.cache == nil {
 		return
 	}
@@ -108,10 +114,12 @@ func (c *Cache) Remove(key Key) {
 }
 
 func (c *Cache) RemoveOldest() {
-	c.removeOldest(RemoveTypeByUser)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.removeOldestLocked(RemoveTypeByUser)
 }
 
-func (c *Cache) removeOldest(removeType RemoveReason) {
+func (c *Cache) removeOldestLocked(removeType RemoveReason) {
 	if c.cache == nil {
 		return
 	}
@@ -134,13 +142,22 @@ func (c *Cache) removeElement(e *list.Element, removeType RemoveReason) {
 }
 
 func (c *Cache) Len() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lenLocked()
+}
+
+func (c *Cache) lenLocked() uint64 {
 	if c.cache == nil {
 		return 0
 	}
 	return uint64(c.ll.Len())
 }
 
+
 func (c *Cache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.OnEvicted != nil {
 		for _, e := range c.cache {
 			kv := e.Value.(*entry)
