@@ -15,17 +15,16 @@ type Cache struct {
 	MaxEntries  uint64
 	MaxMemory   uint64
 	memoryCount uint64
-	OnEvicted   func(key Key, value []byte, fullType RemoveReason)
+	OnEvicted   func(key string, value []byte, fullType RemoveReason)
 	ll          *list.List
 	cache       map[interface{}]*list.Element
 	mu          sync.RWMutex
 }
 
-type Key string
 type RemoveReason int
 
 type entry struct {
-	key   Key
+	key   string
 	value []byte
 }
 
@@ -45,7 +44,7 @@ func New(maxEntries uint64, maxMemory uint64) *Cache {
 	}
 }
 
-func (c *Cache) Add(key Key, value []byte) {
+func (c *Cache) Add(key string, value []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.cache == nil {
@@ -89,7 +88,7 @@ func (c *Cache) Add(key Key, value []byte) {
 	}
 }
 
-func (c *Cache) Get(key Key) (value interface{}, ok bool) {
+func (c *Cache) Get(key string) (value []byte, ok bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.cache == nil {
@@ -102,7 +101,7 @@ func (c *Cache) Get(key Key) (value interface{}, ok bool) {
 	return
 }
 
-func (c *Cache) Remove(key Key) {
+func (c *Cache) Remove(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.cache == nil {
